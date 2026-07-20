@@ -1,0 +1,37 @@
+# Contributing
+
+This repo merges contributions automatically. There's no maintainer sitting
+between you and the archive — a GitHub Action checks your PR and merges it
+itself if it passes. Here's exactly what it checks, so your first PR is your
+last PR.
+
+## The rules
+
+- **One file per PR.** Don't bundle multiple projects into one submission.
+- **Path:** `projects/your-project-name.md` — lowercase, hyphens instead of
+  spaces (e.g. `projects/night-owl-scheduler.md`).
+- **Only add.** Don't edit or delete any existing file in the same PR — that
+  gets auto-rejected, no exceptions, even if it's a typo fix. Open a separate
+  PR for that.
+- **Under 50KB.** This is a write-up, not a whitepaper. Link out to a repo or
+  deck for the deep detail.
+- **Max 10 links** in the file. More than that reads as link-spam to the bot
+  and it'll bounce the PR.
+- **Fill in every field from `TEMPLATE.md`.** The bot checks for the
+  presence of: `project_name`, `team`, `hackathon`, `outcome`,
+  `what_judges_saw`, `what_this_shows`.
+- **New GitHub accounts:** if your account is less than 3 days old, the PR
+  will be held for a manual look instead of auto-merging. This isn't
+  personal — it's the one spam filter a bot can't fully automate away.
+
+## If the bot rejects your PR
+
+It'll comment on the PR explaining exactly which rule it failed. Fix that
+one thing and push again to the same branch — the check re-runs
+automatically, no need to open a new PR.
+
+## What NOT to submit
+
+- Marketing for a product, service, or "opportunity"
+- Anything that isn't a real hackathon project you or your team built
+- Duplicate entries for the same project (one entry per project, ever)

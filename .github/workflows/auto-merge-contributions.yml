@@ -1,0 +1,141 @@
+name: Validate and Auto-Merge Contributions
+
+# Runs on every PR. A PR only merges itself if it passes ALL of:
+#  - structural check   (one new file, right location, right fields)
+#  - safety check        (no edits/deletes to existing files, no oversized dumps,
+#                          no link-spam, no banned words)
+#  - account-age check   (PR author's GitHub account isn't a same-day throwaway)
+# Anything that fails gets a comment explaining why and is left open for you
+# to look at manually if you ever want to — nothing merges automatically.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      valid: ${{ steps.combine.outputs.valid }}
+      reason: ${{ steps.combine.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed
+        uses: tj-actions/changed-files@v44
+
+      - name: Structural + safety check
+        id: check
+        run: |
+          ADDED="${{ steps.changed.outputs.added_files }}"
+          MODIFIED="${{ steps.changed.outputs.modified_files }}"
+          DELETED="${{ steps.changed.outputs.deleted_files }}"
+          REASON=""
+          VALID=true
+
+          if [ -n "$MODIFIED" ] || [ -n "$DELETED" ]; then
+            REASON="PR modifies or deletes existing files — only new files under projects/ are allowed."
+            VALID=false
+          fi
+
+          COUNT=$(echo "$ADDED" | wc -w)
+          if [ "$COUNT" -ne 1 ]; then
+            REASON="PR must add exactly one new file. Found: $COUNT."
+            VALID=false
+          fi
+
+          for f in $ADDED; do
+            if [[ "$f" != projects/*.md ]]; then
+              REASON="File $f is not inside projects/*.md"
+              VALID=false
+            fi
+
+            if [ -f "$f" ]; then
+              SIZE=$(wc -c < "$f")
+              if [ "$SIZE" -gt 50000 ]; then
+                REASON="File $f is too large ($SIZE bytes, max 50000)."
+                VALID=false
+              fi
+
+              for field in "project_name" "team" "hackathon" "outcome" "what_judges_saw" "what_this_shows"; do
+                if ! grep -q "^${field}:" "$f"; then
+                  REASON="Missing field '${field}:' in $f"
+                  VALID=false
+                fi
+              done
+
+              LINKS=$(grep -o "http[s]\?://" "$f" | wc -l)
+              if [ "$LINKS" -gt 10 ]; then
+                REASON="File $f contains $LINKS links — looks like link spam (max 10)."
+                VALID=false
+              fi
+
+              if grep -qif .github/config/banned-words.txt "$f"; then
+                REASON="File $f matched a blocked spam phrase."
+                VALID=false
+              fi
+            fi
+          done
+
+          echo "valid=$VALID" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+
+      - name: Account-age check
+        id: account
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const login = context.payload.pull_request.user.login;
+            const { data: user } = await github.rest.users.getByUsername({ username: login });
+            const createdAt = new Date(user.created_at);
+            const ageDays = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
+            const MIN_AGE_DAYS = 3;
+            core.setOutput('valid', ageDays >= MIN_AGE_DAYS ? 'true' : 'false');
+            core.setOutput('reason', ageDays >= MIN_AGE_DAYS ? '' : `Account is only ${Math.floor(ageDays)} day(s) old (min ${MIN_AGE_DAYS}) — likely a throwaway.`);
+
+      - name: Combine results
+        id: combine
+        run: |
+          if [ "${{ steps.check.outputs.valid }}" == "true" ] && [ "${{ steps.account.outputs.valid }}" == "true" ]; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+            echo "reason=" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            REASON="${{ steps.check.outputs.reason }}${{ steps.account.outputs.reason }}"
+            echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment on failure
+        if: steps.combine.outputs.valid == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `This didn't pass the automated check:\n\n**${{ steps.combine.outputs.reason }}**\n\nFix and push again — the check re-runs automatically. If you think this is a mistake, flag it and it'll get a manual look.`
+            })
+
+  auto-merge:
+    needs: validate
+    if: needs.validate.outputs.valid == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-approve
+        uses: hmarr/auto-approve-action@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          merge-method: squash
